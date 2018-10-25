@@ -1,0 +1,137 @@
+
+目标: 北京链家所有二手房数据
+
+
+思路:
+linkspider
+请求所有大区域, 获得所有小区域链接
+请求所有小区域, 获得该小区域总列表页数
+构造链接并存入redis_key "bj_ershouf:start_urls"中
+
+ershoufspider
+请求构造好的每个列表页
+rules规则抓取列表页的详情页
+解析数据并存入mongoDB中
+
+
+启动链接爬虫
+scrapy crawl bj_link
+给链接发布任务
+lpush bj_ershouf_region:start_urls https://bj.lianjia.com/ershoufang/
+启动二手房信息爬虫
+scrapy crawl bj_ershouf
+
+
+
+添加功能
+随机User-Agent
+随机代理
+使用bloomfilter去重
+
+
+
+分布式
+scrapyd
+
+1. pip install scrapyd && pip install scrapyd-client
+2. 配置Lib\site-packages\scrapyd\default_scrapyd.conf(如下docker新建scrapyd.conf)
+3. 将项目打包成egg文件  scrapyd-deploy --version [name]
+4. 将egg文件通过addversion.json部署到运行着scrapyd主机上
+curl http://localhost:6800/addversion.json -F project=s_redis -F version=
+
+遇到的问题在win虚拟环境内没有生成eggs文件,可能是运行scrapyd时最好就在虚拟环境的盘符,他才能读取到Lib\site-packages\scrapyd\default_scrapyd.conf (Windows) 或者用pycharm的terminal运行scrapyd
+
+开始指定爬虫项目
+curl http://localhost:6800/schedule.json -d project=lianjia_ershouf_web -d spider=bj_link
+curl http://localhost:6800/schedule.json -d project=lianjia_ershouf_web -d spider=bj_ershouf
+结束指定爬虫任务
+curl http://localhost:6800/cancel.json -d project=lianjia_ershouf_web -d job=d2203124d6d411e8a619089e018cd9b7
+
+
+docker
+
+添加scrapyd.conf文件
+添加requirement.txt
+添加Dockerfile文件
+docker部分
+
+
+新建scrapyd.conf
+
+[scrapyd]
+eggs_dir = eggs
+logs_dir = logs
+items_dir = 
+jobs_to_keep =5
+dbs_dir = dbs
+max_proc = 0
+max_proc_per_cpu = 10
+finished_to_keep = 100
+poll_interval = 5.0
+bind_address = 0.0.0.0
+http_port = 6800
+debug = off
+runner = scrapyd.runner
+application = scrapyd.app.application
+launcher = scrapyd.launcher.Launcher
+webroot = scrapyd.website.Root
+
+
+[services]
+schedule.json = scrapyd.webservice.Schedule
+cancel.json = scrapyd.webservice.Cancel
+addversion.json = scrapyd.webservice.AddVersion
+listprojects.json = scrapyd.webservice.ListProjects
+listversions.json = scrapyd.webservice.ListVersions
+listspiders.json = scrapyd.webservice. ListSpiders
+delproject.json = scrapyd.webservice.DeleteProject
+delversion.json = scrapyd.webservice.DeleteVersion
+listjobs.json = scrapyd.webservice.ListJobs
+daemonstatus.json = scrapyd.webservice.DaemonStatus
+
+
+生成requirements
+pip freeze > requirements.txt
+
+
+
+新建Dockerfile
+
+FROM python:3.6
+ADD . /code
+WORKDIR /code
+COPY ./scrapyd.conf /etc/scrapyd/
+EXPOSE 6800
+RUN pip3 install -i https://pypi.douban.com/simple -r requirements.txt
+CMD scrapyd
+
+
+
+docker部分
+
+构建
+docker build -t scrapyd:latest
+运行
+docker run -d -p 6800:6800 scrapyd
+打包
+docker tag scrapyd:latest bridi/scrapyd:latest
+上传到docker hub
+docker push bridi/scrapyd:latest
+其他主机上运行
+docker run -d -p 6800:6800 bridi/scrapyd
+
+
+
+
+
+
+
+构建
+https://github.com/stream-wei/Lianjia/blob/master/Lianjia/spiders/lianjia.py
+https://github.com/feidaoGavin/diandianzu/blob/master/diandianzu/spiders/lianjia.py
+https://github.com/nladuo/lianjia_crawler/tree/master/lianjia_crawler/spiders
+
+反爬
+https://www.jianshu.com/p/aeaa8e0f8f60
+https://cdn2.jianshu.io/p/396776e26f89
+流量异常
