@@ -1,6 +1,8 @@
 
 目标: 北京链家所有二手房数据
 
+实现的功能: 随机代理, 使用bloomfilter去重, scrapyd远程监测控制, docker批量部署
+
 
 思路:
 linkspider
@@ -14,6 +16,7 @@ rules规则抓取列表页的详情页
 解析数据并存入mongoDB中
 
 
+单机运行
 启动链接爬虫
 scrapy crawl bj_link
 给链接发布任务
@@ -23,23 +26,23 @@ scrapy crawl bj_ershouf
 
 
 
-添加功能
-随机User-Agent
-随机代理
-使用bloomfilter去重
-
-
-
 分布式
-scrapyd
+
+scrapyd构建部分
+
+如果要对接docker, 先修改settings.py中的
+MONGO_URI = '172.17.0.1'
+REDIS_HOST = '172.17.0.1'
+
 
 1. pip install scrapyd && pip install scrapyd-client
-2. 配置Lib\site-packages\scrapyd\default_scrapyd.conf(如下docker新建scrapyd.conf)
-3. 将项目打包成egg文件  scrapyd-deploy --version [name]
-4. 将egg文件通过addversion.json部署到运行着scrapyd主机上
-curl http://localhost:6800/addversion.json -F project=s_redis -F version=
+2. 配置Lib\site-packages\scrapyd\default_scrapyd.conf(如下docker部分的新建scrapyd.conf)
+3. 将项目打包成egg文件  scrapyd-deploy --version [id]
+4. 将egg文件通过addversion.json部署到运行着scrapyd主机上(本地不用)
+curl http://localhost:6800/addversion.json -F project=s_redis -F version= [id]
 
-遇到的问题在win虚拟环境内没有生成eggs文件,可能是运行scrapyd时最好就在虚拟环境的盘符,他才能读取到Lib\site-packages\scrapyd\default_scrapyd.conf (Windows) 或者用pycharm的terminal运行scrapyd
+遇到的问题在win虚拟环境内没有生成eggs文件, 请在当前工作路径运行scrapyd
+
 
 开始指定爬虫项目
 curl http://localhost:6800/schedule.json -d project=lianjia_ershouf_web -d spider=bj_link
@@ -48,7 +51,11 @@ curl http://localhost:6800/schedule.json -d project=lianjia_ershouf_web -d spide
 curl http://localhost:6800/cancel.json -d project=lianjia_ershouf_web -d job=d2203124d6d411e8a619089e018cd9b7
 
 
-docker
+
+
+docker构建部分
+
+首先安装docker, 安装docker教程和方法很多这里就不说了
 
 添加scrapyd.conf文件
 添加requirement.txt
@@ -107,12 +114,47 @@ CMD scrapyd
 
 
 
-docker部分
+docker使用部分
 
-构建
-docker build -t scrapyd:latest
-运行
-docker run -d -p 6800:6800 scrapyd
+为了让docker容器能访问宿主机中的redis和mongoDB
+修改主机上的iptables规则以允许来自Docker容器的连接
+iptables -A INPUT -i docker0 -j ACCEPT
+
+
+构建image(注意最后有个小点)
+docker build -t bridi/scrapyd:latest .
+创建运行容器
+docker run -d -p 6800:6800 bridi/scrapyd
+
+
+开始指定爬虫项目
+curl http://47.##.##.##:6800/schedule.json -d project=lianjia_ershouf_web -d spider=bj_link
+curl http://47.##.##.##:6800/schedule.json -d project=lianjia_ershouf_web -d spider=bj_ershouf
+结束指定爬虫任务
+curl http://47.##.##.##:6800/cancel.json -d project=lianjia_ershouf_web -d job=fdb7d5ccd91111e8be820242ac110002
+
+
+连接云上的redis发布任务
+lpush bj_ershouf_region:start_urls https://bj.lianjia.com/ershoufang/
+
+
+关闭容器
+docker stop [containerID] 
+再次运行
+docker start [containerID] 
+
+
+
+如果之前没修改docker中文件, 请在宿主机修改好的settings文件
+MONGO_URI = '172.17.0.1'
+REDIS_HOST = '172.17.0.1'
+复制宿主机修改好的settings文件到docker容器中  容器ID:绝对路径
+docker cp settings.py edac42871a9c:/lianjia/lianjia_ershouf_web/settings.py
+
+
+
+
+docker批量部署
 打包
 docker tag scrapyd:latest bridi/scrapyd:latest
 上传到docker hub
